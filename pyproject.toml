@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-spotify-analytics"
+version = "0.1.0"
+description = "Static SQLite and GitHub Pages analytics for my Spotify data."
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["my_spotify_analytics"]
