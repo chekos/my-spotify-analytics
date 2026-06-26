@@ -68,7 +68,11 @@ class BuildAnalyticsTest(unittest.TestCase):
             self.assertEqual(2, summary["events"])
             self.assertTrue((root / "build" / "spotify.db").exists())
             self.assertTrue((root / "site" / "index.html").exists())
-            self.assertIn("My Spotify Analytics", (root / "site" / "index.html").read_text())
+            index_html = (root / "site" / "index.html").read_text()
+            self.assertIn("My Spotify Analytics", index_html)
+            self.assertIn("--c-paper: #F7F5F1", index_html)
+            self.assertIn("Data Provenance", index_html)
+            self.assertIn("Coverage", index_html)
 
             con = sqlite3.connect(root / "build" / "spotify.db")
             self.assertEqual(

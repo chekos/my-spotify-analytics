@@ -245,6 +245,25 @@ def metric_card(label: str, value: str, detail: str) -> str:
     """
 
 
+def display_source_label(value: str) -> str:
+    labels = {
+        "api": "API",
+        "export": "Account Export",
+        "export+api": "Export + API",
+    }
+    return labels.get(value, value.replace("_", " ").title())
+
+
+def display_coverage_source(value: str) -> str:
+    labels = {
+        "my-esporifai_recent_history": "Recent history mirror",
+        "my-esporifai_spotify_account_export": "Account export",
+        "my-spotify-data_api_recently_played": "Canonical API history",
+        "spotify-git-scraping_api_recently_played": "Original API scraper",
+    }
+    return labels.get(value, value.replace("_", " ").title())
+
+
 def bars(rows: list[sqlite3.Row]) -> str:
     max_value = max([row["plays"] for row in rows], default=1)
     items = []
@@ -275,10 +294,12 @@ def ranked_table(rows: list[sqlite3.Row], columns: list[tuple[str, str]]) -> str
                 cells.append(f"<td>{html.escape(str(value or 'Unknown'))}</td>")
         body.append(f"<tr>{''.join(cells)}</tr>")
     return f"""
-    <table>
-      <thead><tr><th>#</th>{header}</tr></thead>
-      <tbody>{''.join(body)}</tbody>
-    </table>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th>{header}</tr></thead>
+        <tbody>{''.join(body)}</tbody>
+      </table>
+    </div>
     """
 
 
@@ -302,15 +323,45 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
     known_tracks = summary["tracks"] - summary["missing_tracks"]
     audit = summary.get("audit", {})
     event_hash = audit.get("union", {}).get("event_set_hash", "unknown")
+    event_hash_display = (
+        f"{event_hash[:12]}...{event_hash[-12:]}" if len(event_hash) > 28 else event_hash
+    )
     source_ref = audit.get("source_ref", "unknown")
 
     site_dir.mkdir(parents=True, exist_ok=True)
     index_path = site_dir / "index.html"
     db_size_mb = db_path.stat().st_size / 1024 / 1024
+    source_total = sum(row["plays"] for row in source_rows) or 1
+    coverage_checks = audit.get("coverage_checks", [])
 
-    source_breakdown = "".join(
-        f"<tr><td>{html.escape(row['source_label'])}</td><td class=\"numeric\">{row['plays']:,}</td></tr>"
-        for row in source_rows
+    source_breakdown_rows = []
+    for row in source_rows:
+        source_width = round((row["plays"] / source_total) * 100)
+        if row["plays"]:
+            source_width = max(2, source_width)
+        source_breakdown_rows.append(
+            f"""
+        <tr>
+          <td>{html.escape(display_source_label(row['source_label']))}</td>
+          <td>
+            <div class="source-meter" aria-hidden="true">
+              <span style="width:{source_width}%"></span>
+            </div>
+          </td>
+          <td class="numeric">{row['plays']:,}</td>
+        </tr>
+        """
+        )
+    source_breakdown = "".join(source_breakdown_rows)
+    coverage_breakdown = "".join(
+        f"""
+        <tr>
+          <td>{html.escape(display_coverage_source(check.get('source', 'unknown')))}</td>
+          <td class="numeric">{check.get('source_events', 0):,}</td>
+          <td class="coverage-pass">missing {check.get('missing_count', 0):,}</td>
+        </tr>
+        """
+        for check in coverage_checks
     )
 
     index_path.write_text(
@@ -320,134 +371,323 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>My Spotify Analytics</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg width='64' height='64' viewBox='0 0 64 64' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='64' height='64' rx='32' fill='%23F7F5F1'/%3E%3Ccircle cx='32' cy='32' r='24' fill='none' stroke='%23E8DAC6' stroke-width='3'/%3E%3Ctext x='32' y='37' text-anchor='middle' font-family='monospace' font-size='14' fill='%23B7410E'%3ESP%3C/text%3E%3C/svg%3E">
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
     :root {{
-      --bg: #ffffff;
-      --panel: #ffffff;
-      --text: #101820;
-      --muted: #5f6b7a;
-      --line: #d9dee5;
-      --soft: #f5f7f9;
-      --accent: #1aa34a;
-      --accent-dark: #0d7f35;
-      --shadow: 0 1px 2px rgba(16, 24, 32, 0.06);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --c-paper: #F7F5F1;
+      --c-ember: #B7410E;
+      --c-ember-dark: #9E3A0D;
+      --c-joy-ember: #D65A2F;
+      --c-ink: #111111;
+      --c-ink-secondary: #2D2D2D;
+      --c-ink-tertiary: #4A4A4A;
+      --c-dust: #E8DAC6;
+      --c-dust-soft: #EFE5D8;
+      --c-sky: #A7D8DE;
+      --c-process: #6C7B7F;
+      --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+      --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      --shadow-soft: 0 1px 2px rgba(17, 17, 17, 0.04);
+      --shadow-lift: 0 8px 24px rgba(17, 17, 17, 0.10);
+      --shadow-ember: 0 4px 12px rgba(183, 65, 14, 0.15);
+      --ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
     }}
     * {{ box-sizing: border-box; }}
+    html {{ background: var(--c-paper); }}
     body {{
       margin: 0;
-      background: var(--bg);
-      color: var(--text);
+      background: var(--c-paper);
+      color: var(--c-ink);
+      font-family: var(--font-body);
       font-size: 14px;
-      line-height: 1.45;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }}
+    body::before {{
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      opacity: 0.55;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='48' height='48' viewBox='0 0 48 48' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='24' cy='24' r='1' fill='%23E8DAC6'/%3E%3C/svg%3E");
+      background-size: 48px 48px;
     }}
     main {{
-      max-width: 1480px;
+      max-width: 1360px;
       margin: 0 auto;
-      padding: 28px 24px 32px;
+      padding: 36px 28px 28px;
     }}
-    header {{
+    .hero {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.8fr);
+      gap: 28px;
+      align-items: stretch;
+      margin-bottom: 22px;
+    }}
+    .hero-copy {{
+      min-height: 260px;
+      border: 1px solid var(--c-dust);
+      border-radius: 8px;
+      background: rgba(247, 245, 241, 0.92);
+      box-shadow: var(--shadow-soft);
+      padding: 30px 32px;
       display: flex;
-      align-items: flex-start;
+      flex-direction: column;
       justify-content: space-between;
-      gap: 24px;
-      margin-bottom: 26px;
     }}
-    .brand {{
+    .brand-row {{
       display: flex;
-      gap: 14px;
       align-items: center;
+      gap: 16px;
+      margin-bottom: 30px;
     }}
     .mark {{
-      width: 48px;
-      height: 48px;
+      position: relative;
+      width: 58px;
+      height: 58px;
       border-radius: 50%;
-      background: var(--accent);
+      border: 2px solid var(--c-dust);
+      background: var(--c-paper);
       display: grid;
       place-items: center;
-      color: #fff;
-      font-weight: 800;
+      color: var(--c-ember);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
       letter-spacing: 0;
+      transition: transform 300ms var(--ease), border-color 300ms var(--ease);
+    }}
+    .mark::before,
+    .mark::after {{
+      content: "";
+      position: absolute;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: var(--c-paper);
+    }}
+    .mark::before {{ top: 5px; right: -3px; }}
+    .mark::after {{ bottom: 5px; left: -4px; }}
+    .mark:hover {{
+      border-color: var(--c-ember);
+      transform: rotate(5deg);
+    }}
+    .eyebrow {{
+      margin: 0 0 4px;
+      color: var(--c-process);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }}
+    .brand-note {{
+      margin: 0;
+      color: var(--c-ink-tertiary);
+      font-size: 13px;
     }}
     h1 {{
       margin: 0;
-      font-size: 32px;
+      font-family: var(--font-display);
+      font-size: 46px;
       line-height: 1.1;
+      font-weight: 600;
       letter-spacing: 0;
     }}
-    .subtitle {{
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 14px;
+    .lead {{
+      max-width: 62ch;
+      margin: 14px 0 0;
+      color: var(--c-ink-secondary);
+      font-size: 17px;
+      line-height: 1.65;
     }}
-    .meta {{
-      color: var(--muted);
-      font-size: 13px;
-      text-align: right;
+    .hero-links {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 26px;
+      align-items: center;
+    }}
+    .btn-primary,
+    .chevron-link {{
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+      font-weight: 600;
+    }}
+    .btn-primary {{
+      min-width: 158px;
+      justify-content: center;
+      padding: 0 20px;
+      border-radius: 999px;
+      color: var(--c-paper);
+      background: var(--c-ember);
+      box-shadow: none;
+      transition: transform 300ms var(--ease), background 300ms var(--ease), box-shadow 300ms var(--ease);
+    }}
+    .btn-primary:hover {{
+      background: var(--c-ember-dark);
+      box-shadow: var(--shadow-ember);
+      transform: translateY(-1px);
+    }}
+    .chevron-link {{
+      color: var(--c-ink);
+      border-bottom: 1px solid var(--c-dust);
+      padding: 0 0 2px;
+      min-height: auto;
+      transition: color 300ms var(--ease), border-color 300ms var(--ease);
+    }}
+    .chevron-link::after {{
+      content: "->";
+      margin-left: 8px;
+      color: var(--c-ember);
+      transition: transform 300ms var(--ease);
+    }}
+    .chevron-link:hover {{
+      color: var(--c-ember);
+      border-color: var(--c-ember);
+    }}
+    .chevron-link:hover::after {{ transform: translateX(2px); }}
+    .build-panel {{
+      border: 1px solid var(--c-ink);
+      border-radius: 8px;
+      background: var(--c-ink);
+      color: var(--c-paper);
+      padding: 24px;
+      box-shadow: var(--shadow-lift);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 260px;
+    }}
+    .build-panel h2 {{
+      color: var(--c-paper);
+      margin-bottom: 18px;
+    }}
+    .status-line {{
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: rgba(247, 245, 241, 0.82);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }}
+    .status-light {{
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--c-joy-ember);
+      box-shadow: 0 0 0 0 rgba(214, 90, 47, 0.46);
+      animation: emberPulse 1.4s ease-in-out infinite;
+    }}
+    .build-list {{
+      display: grid;
+      gap: 12px;
+      margin: 20px 0 0;
+      padding: 0;
+      list-style: none;
+    }}
+    .build-list li {{
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 16px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(247, 245, 241, 0.16);
+    }}
+    .build-list span {{
+      color: rgba(247, 245, 241, 0.58);
+    }}
+    .build-list strong {{
+      font-weight: 500;
+      overflow-wrap: anywhere;
     }}
     .metrics {{
       display: grid;
       grid-template-columns: repeat(5, minmax(150px, 1fr));
-      gap: 16px;
-      margin-bottom: 18px;
+      gap: 14px;
+      margin-bottom: 14px;
     }}
     .metric, .panel {{
-      background: var(--panel);
-      border: 1px solid var(--line);
+      background: rgba(247, 245, 241, 0.96);
+      border: 1px solid var(--c-dust);
       border-radius: 8px;
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-soft);
+      transition: border-color 300ms var(--ease), transform 300ms var(--ease), box-shadow 300ms var(--ease);
+    }}
+    .metric:hover,
+    .panel:hover {{
+      border-color: var(--c-ember);
+      box-shadow: var(--shadow-lift);
+      transform: translateY(-1px);
     }}
     .metric {{
-      padding: 18px 20px;
-      min-height: 112px;
+      padding: 18px;
+      min-height: 118px;
     }}
     .metric-label {{
-      color: var(--accent-dark);
-      font-size: 13px;
-      font-weight: 700;
+      color: var(--c-ember);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: uppercase;
       margin-bottom: 8px;
     }}
     .metric-value {{
+      font-family: var(--font-display);
       font-size: 28px;
-      font-weight: 760;
+      font-weight: 600;
       letter-spacing: 0;
+      line-height: 1.1;
     }}
     .metric-detail {{
-      color: var(--muted);
+      color: var(--c-ink-tertiary);
       margin-top: 6px;
     }}
     .grid {{
       display: grid;
-      grid-template-columns: 1.05fr 1fr 1.1fr;
+      grid-template-columns: minmax(320px, 1.05fr) minmax(260px, 0.9fr) minmax(360px, 1.1fr);
       gap: 14px;
       align-items: start;
     }}
     .panel {{
-      padding: 16px 16px 18px;
+      padding: 18px;
       overflow: hidden;
     }}
     h2 {{
       margin: 0 0 14px;
-      font-size: 18px;
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 600;
       line-height: 1.2;
       letter-spacing: 0;
     }}
+    .panel-subtitle {{
+      margin: -8px 0 14px;
+      color: var(--c-ink-tertiary);
+      font-size: 13px;
+    }}
     .bars {{
-      height: 340px;
+      height: 330px;
       display: flex;
       align-items: end;
-      gap: 12px;
-      border-bottom: 1px solid var(--line);
-      padding: 30px 4px 0;
+      gap: 10px;
+      border-bottom: 1px solid var(--c-dust);
+      padding: 28px 4px 0;
     }}
     .bar-item {{
       flex: 1;
       min-width: 28px;
       height: 100%;
       display: grid;
-      grid-template-rows: 24px 1fr 26px;
+      grid-template-rows: 48px 1fr 26px;
       text-align: center;
-      color: var(--muted);
+      color: var(--c-ink-tertiary);
       font-size: 12px;
     }}
     .bar-track {{
@@ -457,17 +697,26 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
     }}
     .bar-fill {{
       width: 100%;
-      background: linear-gradient(180deg, #29b85a, #13853c);
+      background: var(--c-ember);
       border-radius: 3px 3px 0 0;
+      border: 1px solid rgba(17, 17, 17, 0.10);
     }}
     .bar-value {{
-      color: var(--accent-dark);
-      font-weight: 700;
+      color: var(--c-ember);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      justify-self: center;
+      letter-spacing: 0;
+      line-height: 1;
+      writing-mode: vertical-rl;
     }}
     .bar-label {{
       padding-top: 8px;
-      color: var(--text);
+      color: var(--c-ink);
+      font-family: var(--font-mono);
     }}
+    .table-wrap {{ overflow-x: auto; }}
     table {{
       width: 100%;
       border-collapse: collapse;
@@ -475,33 +724,39 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
     }}
     th {{
       text-align: left;
-      color: #334155;
-      font-size: 12px;
-      font-weight: 750;
-      border-bottom: 1px solid var(--line);
+      color: var(--c-process);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--c-dust);
       padding: 8px 8px;
     }}
     td {{
-      border-bottom: 1px solid #edf0f3;
+      border-bottom: 1px solid var(--c-dust-soft);
       padding: 9px 8px;
       vertical-align: top;
     }}
+    tbody tr:last-child td {{ border-bottom: 0; }}
     .rank {{
       width: 34px;
-      color: var(--muted);
+      color: var(--c-ink-tertiary);
+      font-family: var(--font-mono);
     }}
     .numeric {{
       text-align: right;
       font-variant-numeric: tabular-nums;
+      font-family: var(--font-mono);
     }}
     .audit {{
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 0.9fr 1fr 1.1fr 0.9fr;
       gap: 0;
       margin-top: 14px;
     }}
     .audit section {{
-      border-right: 1px solid var(--line);
+      border-right: 1px solid var(--c-dust);
       padding: 0 18px;
     }}
     .audit section:first-child {{ padding-left: 0; }}
@@ -512,52 +767,120 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
       gap: 8px 16px;
       margin: 0;
     }}
-    .audit dt {{ color: var(--muted); }}
+    .audit dt {{
+      color: var(--c-ink-tertiary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }}
     .audit dd {{ margin: 0; overflow-wrap: anywhere; }}
+    .source-meter {{
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--c-dust);
+      overflow: hidden;
+      margin-top: 4px;
+    }}
+    .source-meter span {{
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--c-ember);
+    }}
+    .coverage-pass {{
+      color: var(--c-ember);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      white-space: nowrap;
+    }}
     footer {{
-      margin-top: 20px;
-      color: var(--muted);
-      text-align: center;
+      margin-top: 14px;
+      border-radius: 8px;
+      background: var(--c-ink);
+      color: rgba(247, 245, 241, 0.78);
+      padding: 18px 22px;
       font-size: 13px;
     }}
-    a {{ color: var(--accent-dark); text-decoration: none; font-weight: 700; }}
+    footer a {{
+      color: var(--c-paper);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(247, 245, 241, 0.36);
+    }}
+    footer a:hover {{ border-color: var(--c-joy-ember); color: var(--c-joy-ember); }}
+    @keyframes emberPulse {{
+      0% {{ box-shadow: 0 0 0 0 rgba(214, 90, 47, 0.46); }}
+      70% {{ box-shadow: 0 0 0 9px rgba(214, 90, 47, 0); }}
+      100% {{ box-shadow: 0 0 0 0 rgba(214, 90, 47, 0); }}
+    }}
     @media (max-width: 1100px) {{
+      main {{ padding: 26px 18px; }}
+      .hero {{ grid-template-columns: 1fr; }}
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .grid, .audit {{ grid-template-columns: 1fr; }}
       .audit section {{
         border-right: 0;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--c-dust);
         padding: 16px 0;
       }}
       .audit section:last-child {{ border-bottom: 0; }}
     }}
     @media (max-width: 720px) {{
       main {{ padding: 20px 14px; }}
-      header {{ display: block; }}
-      .meta {{ text-align: left; margin-top: 12px; }}
+      .hero-copy, .build-panel {{ padding: 20px; }}
+      .brand-row {{ align-items: flex-start; margin-bottom: 22px; }}
       .metrics {{ grid-template-columns: 1fr; }}
-      h1 {{ font-size: 26px; }}
+      .grid {{ grid-template-columns: 1fr; }}
+      h1 {{ font-size: 34px; }}
       .bars {{ gap: 4px; overflow-x: visible; }}
       .bar-item {{ min-width: 0; grid-template-rows: 1fr 24px; font-size: 10px; }}
       .bar-value {{ display: none; }}
       table {{ font-size: 12px; }}
+      .build-list li {{ grid-template-columns: 1fr; gap: 3px; }}
+      .hero-links {{ align-items: stretch; flex-direction: column; }}
+      .btn-primary {{ width: 100%; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+      *, *::before, *::after {{
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 200ms !important;
+        transform: none !important;
+      }}
     }}
   </style>
 </head>
 <body>
   <main>
-    <header>
-      <div class="brand">
-        <div class="mark">SP</div>
+    <header class="hero">
+      <div class="hero-copy">
         <div>
+          <div class="brand-row">
+            <div class="mark" aria-label="Spotify analytics mark">SP</div>
+            <div>
+              <p class="eyebrow">Canonical listening data</p>
+              <p class="brand-note">Git history -> SQLite -> Pages</p>
+            </div>
+          </div>
           <h1>My Spotify Analytics</h1>
-          <div class="subtitle">Personal listening history insights from the canonical public Spotify data.</div>
+          <p class="lead">A warmer view into the canonical Spotify archive: account export, API history, and metadata preserved as a stable public dataset.</p>
+        </div>
+        <div class="hero-links">
+          <a class="btn-primary" href="https://github.com/chekos/my-spotify-data">Open canonical data</a>
+          <a class="chevron-link" href="https://github.com/chekos/my-spotify-analytics">View analytics source</a>
         </div>
       </div>
-      <div class="meta">
-        Source ref <strong>{html.escape(source_ref)}</strong><br>
-        SQLite build <strong>{db_size_mb:.1f} MB</strong>
-      </div>
+      <aside class="build-panel" aria-label="Build metadata">
+        <div>
+          <div class="status-line"><span class="status-light" aria-hidden="true"></span>canonical pipeline verified</div>
+          <h2>Data Provenance</h2>
+        </div>
+        <ul class="build-list">
+          <li><span>Source ref</span><strong>{html.escape(source_ref)}</strong></li>
+          <li><span>SQLite</span><strong>{db_size_mb:.1f} MB generated artifact</strong></li>
+          <li><span>Event hash</span><strong>{html.escape(event_hash[:16])}</strong></li>
+        </ul>
+      </aside>
     </header>
 
     <section class="metrics">
@@ -565,20 +888,23 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
       {metric_card("Unique Tracks", f"{summary['tracks']:,}", f"{known_tracks:,} with metadata")}
       {metric_card("Unique Artists", f"{summary['artists']:,}", "catalog records")}
       {metric_card("Unique Albums", f"{summary['albums']:,}", "catalog records")}
-      {metric_card("Date Range", f"{summary['earliest'][:10]} – {summary['latest'][:10]}", "UTC timestamps")}
+      {metric_card("Date Range", f"{summary['earliest'][:10]} - {summary['latest'][:10]}", "UTC timestamps")}
     </section>
 
     <section class="grid">
       <div class="panel">
         <h2>Plays By Year</h2>
+        <p class="panel-subtitle">Long-range listening volume from the canonical event stream.</p>
         <div class="bars">{bars(years)}</div>
       </div>
       <div class="panel">
         <h2>Top Artists</h2>
+        <p class="panel-subtitle">Primary artist attribution from catalog records.</p>
         {ranked_table(top_artists, [("artist_name", "Artist"), ("plays", "Plays")])}
       </div>
       <div class="panel">
         <h2>Top Tracks</h2>
+        <p class="panel-subtitle">Most repeated tracks across API and account export history.</p>
         {ranked_table(top_tracks, [("track_name", "Track"), ("artist_name", "Artist"), ("plays", "Plays")])}
       </div>
     </section>
@@ -590,12 +916,26 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
           <dt>Events</dt><dd>{summary['events']:,}</dd>
           <dt>Tracks</dt><dd>{summary['tracks']:,}</dd>
           <dt>Missing metadata</dt><dd>{summary['missing_tracks']:,}</dd>
-          <dt>Event hash</dt><dd>{html.escape(event_hash)}</dd>
+          <dt>Event hash</dt><dd title="{html.escape(event_hash)}">{html.escape(event_hash_display)}</dd>
         </dl>
       </section>
       <section>
         <h2>Source Mix</h2>
-        <table><tbody>{source_breakdown}</tbody></table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Source</th><th>Share</th><th>Plays</th></tr></thead>
+            <tbody>{source_breakdown}</tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h2>Coverage</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Input</th><th>Events</th><th>Status</th></tr></thead>
+            <tbody>{coverage_breakdown}</tbody>
+          </table>
+        </div>
       </section>
       <section>
         <h2>Database</h2>
@@ -609,8 +949,7 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
     </section>
 
     <footer>
-      Built from <a href="https://github.com/chekos/my-spotify-data">my-spotify-data</a>.
-      Generated with Python and SQLite for GitHub Pages.
+      Built from <a href="https://github.com/chekos/my-spotify-data">my-spotify-data</a> with Python and SQLite. Generated artifacts stay out of main.
     </footer>
   </main>
 </body>
