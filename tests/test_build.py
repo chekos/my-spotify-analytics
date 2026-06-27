@@ -73,6 +73,11 @@ class BuildAnalyticsTest(unittest.TestCase):
             self.assertIn("--c-paper: #F7F5F1", index_html)
             self.assertIn("Data Provenance", index_html)
             self.assertIn("Coverage", index_html)
+            self.assertIn("Listening Atlas", index_html)
+            self.assertIn("almanac.html", index_html)
+            self.assertEqual(10, len(summary["page_paths"]))
+            self.assertTrue((root / "site" / "almanac.html").exists())
+            self.assertTrue((root / "site" / "atlas.html").exists())
 
             con = sqlite3.connect(root / "build" / "spotify.db")
             self.assertEqual(

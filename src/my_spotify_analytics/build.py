@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .visualizations import render_visualization_pages, visualization_cards
+
 
 Json = dict[str, Any]
 
@@ -793,6 +795,52 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
       font-size: 12px;
       white-space: nowrap;
     }}
+    .story-index {{
+      margin-top: 14px;
+    }}
+    .story-grid {{
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }}
+    .story-card {{
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid var(--c-dust);
+      border-radius: 8px;
+      padding: 14px;
+      color: var(--c-ink);
+      text-decoration: none;
+      background: rgba(247, 245, 241, 0.98);
+      transition: border-color 300ms var(--ease), transform 300ms var(--ease), box-shadow 300ms var(--ease);
+    }}
+    .story-card:hover {{
+      border-color: var(--c-ember);
+      box-shadow: var(--shadow-lift);
+      transform: translateY(-1px);
+    }}
+    .story-card span {{
+      color: var(--c-ember);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+    }}
+    .story-card strong {{
+      display: block;
+      font-family: var(--font-display);
+      font-size: 21px;
+      line-height: 1.1;
+    }}
+    .story-card em {{
+      color: var(--c-ink-tertiary);
+      font-size: 12px;
+      font-style: normal;
+      line-height: 1.45;
+    }}
     footer {{
       margin-top: 14px;
       border-radius: 8px;
@@ -816,6 +864,7 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
       main {{ padding: 26px 18px; }}
       .hero {{ grid-template-columns: 1fr; }}
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .story-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .grid, .audit {{ grid-template-columns: 1fr; }}
       .audit section {{
         border-right: 0;
@@ -830,6 +879,7 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
       .brand-row {{ align-items: flex-start; margin-bottom: 22px; }}
       .metrics {{ grid-template-columns: 1fr; }}
       .grid {{ grid-template-columns: 1fr; }}
+      .story-grid {{ grid-template-columns: 1fr; }}
       h1 {{ font-size: 34px; }}
       .bars {{ gap: 4px; overflow-x: visible; }}
       .bar-item {{ min-width: 0; grid-template-rows: 1fr 24px; font-size: 10px; }}
@@ -948,6 +998,8 @@ def render_site(db_path: Path, site_dir: Path, summary: dict[str, Any]) -> Path:
       </section>
     </section>
 
+    {visualization_cards()}
+
     <footer>
       Built from <a href="https://github.com/chekos/my-spotify-data">my-spotify-data</a> with Python and SQLite. Generated artifacts stay out of main.
     </footer>
@@ -964,6 +1016,7 @@ def build(data_dir: Path, db_path: Path, site_dir: Path) -> dict[str, Any]:
     summary = build_database(data_dir, db_path)
     index_path = render_site(db_path, site_dir, summary)
     summary["index_path"] = index_path
+    summary["page_paths"] = render_visualization_pages(data_dir, db_path, site_dir, summary)
     return summary
 
 

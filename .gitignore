@@ -3,7 +3,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .coverage
+.playwright-cli/
 .venv/
 venv/
 build/
 site/
+src/*.egg-info/
